@@ -1,168 +1,268 @@
 #!/bin/bash
 
-# Sticker conversion and organization script
-# Converts webm to gif, other formats to png
-# Organizes files with numerical naming to avoid conflicts
+# Sticker conversion pipeline with pluggable per-app rules.
+# Drop a config into ./rules/<name>.sh and run `./main.sh --app <name>`.
+# Defaults to seatalk.
 
-set -e
+set -uo pipefail
 
-# Create directories
-mkdir -p output
-mkdir -p input
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Initialize counter file if it doesn't exist
-if [[ ! -f .output_counter ]]; then
-    echo "1" > .output_counter
+# ---------- Argument parsing ----------
+APP="seatalk"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --app)    APP="$2"; shift 2 ;;
+        --app=*)  APP="${1#*=}"; shift ;;
+        --list)
+            echo "Available rule sets:"
+            for r in "$SCRIPT_DIR"/rules/*.sh; do
+                [[ -f "$r" ]] && echo "  - $(basename "${r%.sh}")"
+            done
+            exit 0
+            ;;
+        -h|--help)
+            cat <<EOF
+Usage: $(basename "$0") [--app <name>] [--list] [--help]
+
+Converts videos to GIF and images to PNG, enforcing per-app size limits
+via iterative compression.
+
+Options:
+  --app <name>   Rule set to apply (default: seatalk)
+  --list         List available rule sets
+  -h, --help     Show this help
+
+Add new apps by creating ./rules/<name>.sh defining MAX_SIZE_BYTES,
+QUALITY_TIERS, and PNG_QUALITY_TIERS.
+EOF
+            exit 0
+            ;;
+        *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+RULE_FILE="$SCRIPT_DIR/rules/${APP}.sh"
+if [[ ! -f "$RULE_FILE" ]]; then
+    echo "Rule file not found: $RULE_FILE" >&2
+    echo "Run with --list to see available rule sets." >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$RULE_FILE"
+
+if [[ -z "${MAX_SIZE_BYTES:-}" ]] || [[ ${#QUALITY_TIERS[@]} -eq 0 ]] || [[ ${#PNG_QUALITY_TIERS[@]} -eq 0 ]]; then
+    echo "Rule '$APP' is missing MAX_SIZE_BYTES / QUALITY_TIERS / PNG_QUALITY_TIERS." >&2
+    exit 1
 fi
 
-# Function to get next counter value
-get_next_counter() {
-    local counter_file="$1"
-    local current=$(cat "$counter_file")
-    echo "$current"
-    echo $((current + 1)) > "$counter_file"
+# ---------- Setup ----------
+mkdir -p output input
+[[ -f .output_counter ]] || echo "1" > .output_counter
+
+# ---------- Helpers ----------
+file_size() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
+
+human_size() {
+    awk -v b="$1" 'BEGIN{
+        if (b >= 1048576)      printf "%.2fMB", b/1048576
+        else if (b >= 1024)    printf "%.0fKB", b/1024
+        else                   printf "%dB", b
+    }'
 }
 
-# Function to convert webm to gif
-convert_to_gif() {
+get_next_counter() {
+    local current
+    current=$(cat .output_counter)
+    echo "$current"
+    echo $((current + 1)) > .output_counter
+}
+
+# ---------- GIF conversion ----------
+build_gif() {
+    # build_gif <input> <output> <fps> <width> <colors>
+    local input="$1" output="$2" fps="$3" width="$4" colors="$5"
+    ffmpeg -loglevel error -i "$input" \
+        -vf "fps=$fps,scale=$width:-1:flags=lanczos,palettegen=max_colors=$colors" \
+        -y "/tmp/palette.png" || return 1
+    ffmpeg -loglevel error -i "$input" -i "/tmp/palette.png" \
+        -filter_complex "fps=$fps,scale=$width:-1:flags=lanczos[x];[x][1:v]paletteuse" \
+        -y "$output" || return 1
+}
+
+fit_gif() {
+    # Prints a one-line report on stdout; exit 0 = fit, 1 = oversized, 2 = failed
+    local input="$1" output="$2"
+    local last_size=0
+    for tier in "${QUALITY_TIERS[@]}"; do
+        # shellcheck disable=SC2086
+        read -r fps width colors <<<"$tier"
+        if ! build_gif "$input" "$output" "$fps" "$width" "$colors"; then
+            echo "ffmpeg failed"
+            return 2
+        fi
+        last_size=$(file_size "$output")
+        if [[ $last_size -le $MAX_SIZE_BYTES ]]; then
+            printf "%sfps/%spx/%sc, %s" "$fps" "$width" "$colors" "$(human_size "$last_size")"
+            return 0
+        fi
+    done
+    printf "%s — over limit" "$(human_size "$last_size")"
+    return 1
+}
+
+# ---------- PNG conversion ----------
+build_png() {
+    # build_png <input> <output> [max_width]
+    local input="$1" output="$2" width="${3:-}"
+    if [[ -n "$width" ]]; then
+        if command -v convert >/dev/null 2>&1; then
+            convert "$input" -resize "${width}x${width}>" "$output"
+        else
+            ffmpeg -loglevel error -i "$input" -vf "scale='min($width,iw)':-1" -y "$output"
+        fi
+    else
+        if command -v convert >/dev/null 2>&1; then
+            convert "$input" "$output"
+        else
+            ffmpeg -loglevel error -i "$input" -y "$output"
+        fi
+    fi
+}
+
+fit_png() {
+    local input="$1" output="$2"
+    local size
+    if ! build_png "$input" "$output"; then
+        echo "conversion failed"
+        return 2
+    fi
+    size=$(file_size "$output")
+    if [[ $size -le $MAX_SIZE_BYTES ]]; then
+        human_size "$size"
+        return 0
+    fi
+    for width in "${PNG_QUALITY_TIERS[@]}"; do
+        if ! build_png "$input" "$output" "$width"; then
+            echo "conversion failed"
+            return 2
+        fi
+        size=$(file_size "$output")
+        if [[ $size -le $MAX_SIZE_BYTES ]]; then
+            printf "%spx, %s" "$width" "$(human_size "$size")"
+            return 0
+        fi
+    done
+    printf "%s — over limit" "$(human_size "$size")"
+    return 1
+}
+
+# ---------- Per-file handlers ----------
+process_video() {
     local input_file="$1"
-    local counter=$(get_next_counter .output_counter)
+    local counter; counter=$(get_next_counter)
     local output_file="output/${counter}.gif"
     local archive_file="input/${counter}_$(basename "$input_file")"
-    
-    echo "Converting $input_file to GIF..."
-    ffmpeg -i "$input_file" -vf "fps=15,scale=320:-1:flags=lanczos,palettegen" -y "/tmp/palette.png"
-    ffmpeg -i "$input_file" -i "/tmp/palette.png" -filter_complex "fps=15,scale=320:-1:flags=lanczos[x];[x][1:v]paletteuse" -y "$output_file"
-    
-    # Move original to archive
+
+    echo "  → $input_file"
+    local report rc
+    report=$(fit_gif "$input_file" "$output_file"); rc=$?
+    case $rc in
+        0) echo "    ✓ $output_file  ($report)" ;;
+        1) echo "    ⚠ $output_file  ($report)" ;;
+        *) echo "    ✗ $input_file  ($report)"; return ;;
+    esac
     mv "$input_file" "$archive_file"
-    echo "✓ Created: $output_file"
-    echo "✓ Archived: $archive_file"
 }
 
-# Function to convert to png
-convert_to_png() {
+process_image() {
     local input_file="$1"
-    local counter=$(get_next_counter .output_counter)
+    local counter; counter=$(get_next_counter)
     local output_file="output/${counter}.png"
     local archive_file="input/${counter}_$(basename "$input_file")"
-    
-    echo "Converting $input_file to PNG..."
-    
-    # Use different conversion based on input format
-    local ext="${input_file##*.}"
-    ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-    case "$ext" in
-        webp)
-            # Convert webp to png using ImageMagick or ffmpeg
-            if command -v convert >/dev/null 2>&1; then
-                convert "$input_file" "$output_file"
-            else
-                ffmpeg -i "$input_file" -y "$output_file"
-            fi
-            ;;
-        jpg|jpeg)
-            # Convert jpg/jpeg to png
-            if command -v convert >/dev/null 2>&1; then
-                convert "$input_file" "$output_file"
-            else
-                ffmpeg -i "$input_file" -y "$output_file"
-            fi
-            ;;
-        *)
-            # For other formats
-            if command -v convert >/dev/null 2>&1; then
-                convert "$input_file" "$output_file"
-            else
-                ffmpeg -i "$input_file" -y "$output_file"
-            fi
-            ;;
+
+    echo "  → $input_file"
+    local report rc
+    report=$(fit_png "$input_file" "$output_file"); rc=$?
+    case $rc in
+        0) echo "    ✓ $output_file  ($report)" ;;
+        1) echo "    ⚠ $output_file  ($report)" ;;
+        *) echo "    ✗ $input_file  ($report)"; return ;;
     esac
-    
-    # Move original to archive
     mv "$input_file" "$archive_file"
-    echo "✓ Created: $output_file"
-    echo "✓ Archived: $archive_file"
 }
 
-# Function to move already-accepted formats
-move_accepted_format() {
+process_passthrough() {
     local input_file="$1"
     local ext="${input_file##*.}"
-    local counter
-    local output_file
-    local archive_file
-    
     ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-    case "$ext" in
-        gif)
-            counter=$(get_next_counter .output_counter)
-            output_file="output/${counter}.gif"
-            archive_file="input/${counter}_$(basename "$input_file")"
-            echo "Moving $input_file (already GIF format)..."
-            ;;
-        png)
-            counter=$(get_next_counter .output_counter)
-            output_file="output/${counter}.png"
-            archive_file="input/${counter}_$(basename "$input_file")"
-            echo "Moving $input_file (already PNG format)..."
-            ;;
-    esac
-    
-    # Copy to output and move original to archive
+    local counter; counter=$(get_next_counter)
+    local output_file="output/${counter}.${ext}"
+    local archive_file="input/${counter}_$(basename "$input_file")"
+
+    echo "  → $input_file"
     cp "$input_file" "$output_file"
+    local size; size=$(file_size "$output_file")
+
+    if [[ $size -le $MAX_SIZE_BYTES ]]; then
+        echo "    ✓ $output_file  ($(human_size "$size"))"
+    else
+        local before=$size report rc
+        rm -f "$output_file"
+        if [[ "$ext" == "gif" ]]; then
+            report=$(fit_gif "$input_file" "$output_file"); rc=$?
+        else
+            report=$(fit_png "$input_file" "$output_file"); rc=$?
+        fi
+        case $rc in
+            0) echo "    ↻ $output_file  ($report) [shrunk from $(human_size "$before")]" ;;
+            1) echo "    ⚠ $output_file  ($report)" ;;
+            *) echo "    ✗ $input_file  ($report)"; return ;;
+        esac
+    fi
     mv "$input_file" "$archive_file"
-    echo "✓ Moved: $output_file"
-    echo "✓ Archived: $archive_file"
 }
 
-# Main processing
-echo "🎯 Starting sticker conversion process..."
-echo "📁 Current directory: $(pwd)"
+# ---------- Main ----------
+echo "🎯 ${APP_NAME:-$APP} sticker pipeline  (max $(human_size "$MAX_SIZE_BYTES"))"
+echo "📁 $(pwd)"
 echo
 
-# Count files to process
-webm_count=$(find . -maxdepth 1 -name "*.webm" -type f | wc -l | tr -d ' ')
-convert_count=$(find . -maxdepth 1 \( -name "*.webp" -o -name "*.jpg" -o -name "*.jpeg" \) -type f | wc -l | tr -d ' ')
-move_count=$(find . -maxdepth 1 \( -name "*.gif" -o -name "*.png" \) -type f | wc -l | tr -d ' ')
+video_count=$(find . -maxdepth 1 \( -name "*.webm" -o -name "*.mp4" \) -type f | wc -l | tr -d ' ')
+image_count=$(find . -maxdepth 1 \( -name "*.webp" -o -name "*.jpg" -o -name "*.jpeg" \) -type f | wc -l | tr -d ' ')
+pass_count=$(find . -maxdepth 1 \( -name "*.gif" -o -name "*.png" \) -type f | wc -l | tr -d ' ')
 
-echo "📊 Found $webm_count WebM files (will convert to GIF)"
-echo "📊 Found $convert_count image files (will convert to PNG)"
-echo "📊 Found $move_count already-accepted files (will move to output)"
-echo
-
-if [[ $webm_count -eq 0 && $convert_count -eq 0 && $move_count -eq 0 ]]; then
-    echo "ℹ️  No files to process."
+if [[ $((video_count + image_count + pass_count)) -eq 0 ]]; then
+    echo "Nothing to process."
     exit 0
 fi
 
-# Process WebM files (convert to GIF)
-echo "🎬 Processing WebM files..."
-find . -maxdepth 1 -name "*.webm" -type f | while read -r file; do
-    convert_to_gif "$file"
-done
-
-# Process files that need conversion to PNG
+echo "Found: $video_count video, $image_count image, $pass_count passthrough"
 echo
-echo "🖼️  Converting image files to PNG..."
-find . -maxdepth 1 \( -name "*.webp" -o -name "*.jpg" -o -name "*.jpeg" \) -type f | while read -r file; do
-    convert_to_png "$file"
-done
 
-# Process already-accepted formats (just move and rename)
-echo
-echo "📁 Moving already-accepted formats..."
-find . -maxdepth 1 \( -name "*.gif" -o -name "*.png" \) -type f | while read -r file; do
-    move_accepted_format "$file"
-done
+if [[ $video_count -gt 0 ]]; then
+    echo "🎬 Videos → GIF"
+    find . -maxdepth 1 \( -name "*.webm" -o -name "*.mp4" \) -type f | while read -r file; do
+        process_video "$file"
+    done
+    echo
+fi
 
-echo
-echo "✅ Conversion complete!"
-echo "📁 Converted files are in: output/"
-echo "📁 Original files archived in: input/"
+if [[ $image_count -gt 0 ]]; then
+    echo "🖼  Images → PNG"
+    find . -maxdepth 1 \( -name "*.webp" -o -name "*.jpg" -o -name "*.jpeg" \) -type f | while read -r file; do
+        process_image "$file"
+    done
+    echo
+fi
 
-# Show summary
+if [[ $pass_count -gt 0 ]]; then
+    echo "📦 Passthrough (GIF/PNG)"
+    find . -maxdepth 1 \( -name "*.gif" -o -name "*.png" \) -type f | while read -r file; do
+        process_passthrough "$file"
+    done
+    echo
+fi
+
 total_final=$(cat .output_counter)
-echo
-echo "📈 Summary:"
-echo "   - Total files processed: $((total_final - 1))"
+echo "✅ Done. $((total_final - 1)) total files in output/"
