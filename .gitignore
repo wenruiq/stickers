@@ -1,5 +1,15 @@
-input/
-output/
+# Per-user state — never commit the user's stickers
+input/*
+output/*
+archive/*
+!input/.gitkeep
+!output/.gitkeep
+!archive/.gitkeep
+
+# Script state
+.output_counter
+
+# macOS / editors
+.DS_Store
 .vscode/
 .claude/
-.output_counter
