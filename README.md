@@ -2,6 +2,17 @@
 
 Drop your videos and images in, get chat-ready stickers out — automatically sized to your chat app's limit. Configured by default for **SeaTalk** (2MB per sticker).
 
+## TL;DR
+
+```bash
+brew install ffmpeg imagemagick   # one-time
+chmod +x main.sh                  # one-time
+# drop your source files into ./input
+./main.sh                         # → output goes to ./output, originals goes to ./archive
+```
+
+---
+
 ## Setup (one time)
 
 ```bash
@@ -20,11 +31,13 @@ That's it. Originals are tidied into `./archive/` so you can always find them ag
 
 ### What it accepts
 
-| You drop                  | You get | Notes                                                        |
-| ------------------------- | ------- | ------------------------------------------------------------ |
-| `.mp4`, `.webm`           | `.gif`  | Re-encoded down until it fits under the size limit.          |
-| `.jpg`, `.jpeg`, `.webp`  | `.png`  | Downscaled in steps if too large.                            |
-| `.gif`, `.png`            | same    | Copied as-is, or re-encoded if it exceeds the size limit.    |
+
+| You drop                 | You get | Notes                                                     |
+| ------------------------ | ------- | --------------------------------------------------------- |
+| `.mp4`, `.webm`          | `.gif`  | Re-encoded down until it fits under the size limit.       |
+| `.jpg`, `.jpeg`, `.webp` | `.png`  | Downscaled in steps if too large.                         |
+| `.gif`, `.png`           | same    | Copied as-is, or re-encoded if it exceeds the size limit. |
+
 
 Output is numbered sequentially (`1.gif`, `2.png`, `3.gif`, …) and keeps counting upward across runs, so you can keep adding stickers indefinitely without overwriting anything.
 
@@ -125,3 +138,4 @@ fps  width  colors
  10  240     96
   8  200     64     ← last resort
 ```
+
