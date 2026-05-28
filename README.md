@@ -64,9 +64,10 @@ Found in input/: 2 video, 1 image, 0 passthrough
 Status markers:
 
 - `✓` — fit on the first attempt, full quality
-- `↻` — fit, but the script had to step quality down
-- `⚠` — exhausted all quality steps and the file is still over the limit (kept anyway)
-- `✗` — conversion failed; the original stays in `input/`
+- `↻` — already an accepted format but had to be re-encoded down to fit
+- `✗` — couldn't be processed (either ffmpeg failed or no quality tier got it under the size limit); the original stays in `input/` so you can fix it and retry
+
+`output/` is guaranteed to contain only files that meet the rule — anything that can't be sized down is left in `input/` for you to deal with.
 
 ## CLI
 

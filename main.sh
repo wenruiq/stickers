@@ -73,9 +73,11 @@ mkdir -p "$INPUT_DIR" "$OUTPUT_DIR" "$ARCHIVE_DIR"
 file_size() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
 
 human_size() {
+    # Uses decimal units (1MB = 1,000,000 bytes) to match macOS Finder and
+    # chat-app upload limits.
     awk -v b="$1" 'BEGIN{
-        if (b >= 1048576)      printf "%.2fMB", b/1048576
-        else if (b >= 1024)    printf "%.0fKB", b/1024
+        if (b >= 1000000)      printf "%.2fMB", b/1000000
+        else if (b >= 1000)    printf "%.0fKB", b/1000
         else                   printf "%dB", b
     }'
 }
@@ -106,10 +108,10 @@ list_inputs() {
 # ---------- GIF conversion ----------
 build_gif() {
     local input="$1" output="$2" fps="$3" width="$4" colors="$5"
-    ffmpeg -loglevel error -i "$input" \
+    ffmpeg -nostdin -loglevel error -i "$input" \
         -vf "fps=$fps,scale=$width:-1:flags=lanczos,palettegen=max_colors=$colors" \
         -y "/tmp/palette.png" || return 1
-    ffmpeg -loglevel error -i "$input" -i "/tmp/palette.png" \
+    ffmpeg -nostdin -loglevel error -i "$input" -i "/tmp/palette.png" \
         -filter_complex "fps=$fps,scale=$width:-1:flags=lanczos[x];[x][1:v]paletteuse" \
         -y "$output" || return 1
 }
@@ -140,13 +142,13 @@ build_png() {
         if command -v convert >/dev/null 2>&1; then
             convert "$input" -resize "${width}x${width}>" "$output"
         else
-            ffmpeg -loglevel error -i "$input" -vf "scale='min($width,iw)':-1" -y "$output"
+            ffmpeg -nostdin -loglevel error -i "$input" -vf "scale='min($width,iw)':-1" -y "$output"
         fi
     else
         if command -v convert >/dev/null 2>&1; then
             convert "$input" "$output"
         else
-            ffmpeg -loglevel error -i "$input" -y "$output"
+            ffmpeg -nostdin -loglevel error -i "$input" -y "$output"
         fi
     fi
 }
@@ -189,11 +191,16 @@ process_video() {
     local report rc
     report=$(fit_gif "$input_file" "$output_file"); rc=$?
     case $rc in
-        0) echo "    ✓ output/${counter}.gif  ($report)" ;;
-        1) echo "    ⚠ output/${counter}.gif  ($report)" ;;
-        *) echo "    ✗ $(basename "$input_file")  ($report)"; return ;;
+        0) echo "    ✓ output/${counter}.gif  ($report)"
+           mv "$input_file" "$archive_file"
+           ;;
+        1) echo "    ✗ $(basename "$input_file")  ($report) — kept in input/, trim the source and retry"
+           rm -f "$output_file"
+           ;;
+        *) echo "    ✗ $(basename "$input_file")  ($report)"
+           rm -f "$output_file"
+           ;;
     esac
-    mv "$input_file" "$archive_file"
 }
 
 process_image() {
@@ -206,11 +213,16 @@ process_image() {
     local report rc
     report=$(fit_png "$input_file" "$output_file"); rc=$?
     case $rc in
-        0) echo "    ✓ output/${counter}.png  ($report)" ;;
-        1) echo "    ⚠ output/${counter}.png  ($report)" ;;
-        *) echo "    ✗ $(basename "$input_file")  ($report)"; return ;;
+        0) echo "    ✓ output/${counter}.png  ($report)"
+           mv "$input_file" "$archive_file"
+           ;;
+        1) echo "    ✗ $(basename "$input_file")  ($report) — kept in input/, shrink the source and retry"
+           rm -f "$output_file"
+           ;;
+        *) echo "    ✗ $(basename "$input_file")  ($report)"
+           rm -f "$output_file"
+           ;;
     esac
-    mv "$input_file" "$archive_file"
 }
 
 process_passthrough() {
@@ -227,21 +239,29 @@ process_passthrough() {
 
     if [[ $size -le $MAX_SIZE_BYTES ]]; then
         echo "    ✓ output/${counter}.${ext}  ($(human_size "$size"))"
-    else
-        local before=$size report rc
-        rm -f "$output_file"
-        if [[ "$ext" == "gif" ]]; then
-            report=$(fit_gif "$input_file" "$output_file"); rc=$?
-        else
-            report=$(fit_png "$input_file" "$output_file"); rc=$?
-        fi
-        case $rc in
-            0) echo "    ↻ output/${counter}.${ext}  ($report) [shrunk from $(human_size "$before")]" ;;
-            1) echo "    ⚠ output/${counter}.${ext}  ($report)" ;;
-            *) echo "    ✗ $(basename "$input_file")  ($report)"; return ;;
-        esac
+        mv "$input_file" "$archive_file"
+        return
     fi
-    mv "$input_file" "$archive_file"
+
+    # Already-encoded file is over the limit; try to re-encode it down.
+    local before=$size report rc
+    rm -f "$output_file"
+    if [[ "$ext" == "gif" ]]; then
+        report=$(fit_gif "$input_file" "$output_file"); rc=$?
+    else
+        report=$(fit_png "$input_file" "$output_file"); rc=$?
+    fi
+    case $rc in
+        0) echo "    ↻ output/${counter}.${ext}  ($report) [shrunk from $(human_size "$before")]"
+           mv "$input_file" "$archive_file"
+           ;;
+        1) echo "    ✗ $(basename "$input_file")  ($report) — kept in input/, shrink the source and retry"
+           rm -f "$output_file"
+           ;;
+        *) echo "    ✗ $(basename "$input_file")  ($report)"
+           rm -f "$output_file"
+           ;;
+    esac
 }
 
 # ---------- Misplacement check ----------
