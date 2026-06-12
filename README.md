@@ -78,6 +78,10 @@ Status markers:
 ./main.sh --app NAME  # use a different rule set
 ```
 
+## Claude Code skill (bundled)
+
+This repo ships a Claude Code skill at `.claude/skills/7tv-emotes/` that finds a [7TV](https://7tv.app) emote by name, downloads it, and feeds it straight into this pipeline. If you use Claude Code, just open it in this repo and ask — e.g. *"get me the peepoHappy gif as a SeaTalk sticker."* No install step: Claude Code auto-discovers `.claude/skills/`. The skill resolves this repo's `input/` relative to its own location, so it works wherever you cloned to.
+
 ## Resetting
 
 To wipe processed files and restart numbering from 1:

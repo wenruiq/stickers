@@ -17,6 +17,17 @@ ARCHIVE_DIR="$SCRIPT_DIR/archive"
 RULES_DIR="$SCRIPT_DIR/.rules"
 COUNTER_FILE="$SCRIPT_DIR/.output_counter"
 
+# ImageMagick CLI: v7 ships `magick` and deprecates the old `convert` entrypoint
+# (it prints a warning and will eventually be removed). Prefer `magick`; fall back
+# to `convert` on v6-only systems. Empty if ImageMagick isn't installed at all.
+if command -v magick >/dev/null 2>&1; then
+    IM="magick"
+elif command -v convert >/dev/null 2>&1; then
+    IM="convert"
+else
+    IM=""
+fi
+
 # ---------- Argument parsing ----------
 APP="seatalk"
 while [[ $# -gt 0 ]]; do
@@ -139,14 +150,14 @@ fit_gif() {
 build_png() {
     local input="$1" output="$2" width="${3:-}"
     if [[ -n "$width" ]]; then
-        if command -v convert >/dev/null 2>&1; then
-            convert "$input" -resize "${width}x${width}>" "$output"
+        if [[ -n "$IM" ]]; then
+            "$IM" "$input" -resize "${width}x${width}>" "$output"
         else
             ffmpeg -nostdin -loglevel error -i "$input" -vf "scale='min($width,iw)':-1" -y "$output"
         fi
     else
-        if command -v convert >/dev/null 2>&1; then
-            convert "$input" "$output"
+        if [[ -n "$IM" ]]; then
+            "$IM" "$input" "$output"
         else
             ffmpeg -nostdin -loglevel error -i "$input" -y "$output"
         fi

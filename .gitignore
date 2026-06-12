@@ -12,4 +12,9 @@ archive/*
 # macOS / editors
 .DS_Store
 .vscode/
-.claude/
+
+# Claude Code: ignore personal state, but ship the bundled skill
+# (also overrides a global ~/.gitignore rule that ignores .claude/skills/*)
+.claude/*
+!.claude/skills/
+!.claude/skills/**
