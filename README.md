@@ -6,7 +6,6 @@ Turn any video or image into a chat-ready **SeaTalk sticker** (≤2MB). Drop fil
 
 ```bash
 brew install ffmpeg imagemagick   # one-time
-chmod +x main.sh                  # one-time
 
 # 1. Drop your files into  ./input
 # 2. Run:
