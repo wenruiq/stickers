@@ -1,146 +1,67 @@
 # Sticker Converter
 
-Drop your videos and images in, get chat-ready stickers out — automatically sized to your chat app's limit. Configured by default for **SeaTalk** (2MB per sticker).
+Turn any video or image into a chat-ready **SeaTalk sticker** (≤2MB). Drop files in, run one command, get sized stickers out.
 
-## TL;DR
+## Quick start
 
 ```bash
 brew install ffmpeg imagemagick   # one-time
 chmod +x main.sh                  # one-time
-# drop your source files into ./input
-./main.sh                         # → output goes to ./output, originals goes to ./archive
+
+# 1. Drop your files into  ./input
+# 2. Run:
+./main.sh
+# 3. Grab your stickers from  ./output
 ```
 
----
+Originals are moved to `./archive`. Output is numbered (`1.gif`, `2.png`, …) and keeps counting up across runs — nothing gets overwritten.
 
-## Setup (one time)
+## What goes in → what comes out
+
+| You drop                 | You get | What happens                                  |
+| ------------------------ | ------- | --------------------------------------------- |
+| `.mp4`, `.webm`          | `.gif`  | Re-encoded down until it fits under 2MB.       |
+| `.jpg`, `.jpeg`, `.webp` | `.png`  | Downscaled in steps if too large.             |
+| `.gif`, `.png`           | same    | Kept as-is, or re-encoded down if over 2MB.    |
+
+`output/` only ever contains files that fit the limit. Anything that can't be sized down stays in `input/` so you can fix it and retry.
+
+## Grab a sticker from 7TV (Claude Code)
+
+This repo bundles a Claude Code skill. Open the repo in Claude Code and just ask:
+
+> *"get me the peepoHappy gif as a SeaTalk sticker"*
+
+It finds the [7TV](https://7tv.app) emote, downloads it to `input/`, and runs the pipeline for you. No setup — Claude Code auto-discovers the skill.
+
+## Commands
 
 ```bash
-brew install ffmpeg imagemagick
-```
-
-## Use it
-
-```
-1. Drop files into ./input/
-2. Run ./main.sh
-3. Find stickers in ./output/
-```
-
-That's it. Originals are tidied into `./archive/` so you can always find them again.
-
-### What it accepts
-
-
-| You drop                 | You get | Notes                                                     |
-| ------------------------ | ------- | --------------------------------------------------------- |
-| `.mp4`, `.webm`          | `.gif`  | Re-encoded down until it fits under the size limit.       |
-| `.jpg`, `.jpeg`, `.webp` | `.png`  | Downscaled in steps if too large.                         |
-| `.gif`, `.png`           | same    | Copied as-is, or re-encoded if it exceeds the size limit. |
-
-
-Output is numbered sequentially (`1.gif`, `2.png`, `3.gif`, …) and keeps counting upward across runs, so you can keep adding stickers indefinitely without overwriting anything.
-
-## What a run looks like
-
-```
-🎯 SeaTalk sticker pipeline  (max 2.00MB)
-
-Found in input/: 2 video, 1 image, 0 passthrough
-
-🎬 Videos → GIF
-  → clip1.mp4
-    ✓ output/17.gif  (15fps/320px/256c, 1.42MB)
-  → clip2.webm
-    ↻ output/18.gif  (12fps/280px/128c, 1.78MB)
-
-🖼  Images → PNG
-  → photo.jpg
-    ✓ output/19.png  (87KB)
-
-✅ Done. 19 total files in output/, originals archived in archive/
-```
-
-Status markers:
-
-- `✓` — fit on the first attempt, full quality
-- `↻` — already an accepted format but had to be re-encoded down to fit
-- `✗` — couldn't be processed (either ffmpeg failed or no quality tier got it under the size limit); the original stays in `input/` so you can fix it and retry
-
-`output/` is guaranteed to contain only files that meet the rule — anything that can't be sized down is left in `input/` for you to deal with.
-
-## CLI
-
-```
 ./main.sh             # process input/
-./main.sh --help      # show usage
+./main.sh --help      # usage
 ./main.sh --list      # list available app rule sets
-./main.sh --app NAME  # use a different rule set
+./main.sh --app NAME  # use a different app's size rules
 ```
 
-## Claude Code skill (bundled)
-
-This repo ships a Claude Code skill at `.claude/skills/7tv-emotes/` that finds a [7TV](https://7tv.app) emote by name, downloads it, and feeds it straight into this pipeline. If you use Claude Code, just open it in this repo and ask — e.g. *"get me the peepoHappy gif as a SeaTalk sticker."* No install step: Claude Code auto-discovers `.claude/skills/`. The skill resolves this repo's `input/` relative to its own location, so it works wherever you cloned to.
-
-## Resetting
-
-To wipe processed files and restart numbering from 1:
+To reset everything and restart numbering from 1:
 
 ```bash
 rm -rf output/* archive/* .output_counter
 ```
 
-`input/` should already be empty after a clean run.
+## Adding another chat app
 
-## Layout
-
-```
-[Z] Stickers/
-├── main.sh
-├── README.md
-├── input/       ← you drop sources here
-├── output/      ← processed stickers
-├── archive/     ← originals tidied here after processing
-└── .rules/      ← per-app size rules (hidden; only touch if adding apps)
-```
-
-`input/`, `output/`, and `archive/` ship empty (with a `.gitkeep` placeholder); your personal files in them are gitignored.
-
----
-
-## Advanced: adding a new app
-
-Each chat app has its own size cap. To add one, drop a config into `.rules/`:
+Each app has its own size cap, defined in `.rules/`. Copy SeaTalk's and edit:
 
 ```bash
-cp .rules/seatalk.sh .rules/telegram.sh
-```
-
-Edit the three constants in the new file:
-
-- `MAX_SIZE_BYTES` — the per-file size cap
-- `QUALITY_TIERS` — GIF tiers tried in order, each `"<fps> <width> <colors>"`
-- `PNG_QUALITY_TIERS` — max widths tried for oversized PNGs
-
-Then:
-
-```bash
+cp .rules/seatalk.sh .rules/telegram.sh   # then edit, and run:
 ./main.sh --app telegram
 ```
 
-### How the size cap is enforced
+Three constants control the output:
 
-For each source the script walks the rule's quality tiers in order and keeps the first encode that fits under `MAX_SIZE_BYTES`. So you always get the best-quality version that hits the cap, not a one-size-fits-all downsample.
+- `MAX_SIZE_BYTES` — per-file size cap
+- `QUALITY_TIERS` — GIF settings tried in order (`"<fps> <width> <colors>"`), best first
+- `PNG_QUALITY_TIERS` — max widths tried for oversized PNGs
 
-GIF tier example (SeaTalk):
-
-```
-fps  width  colors
- 15  320    256     ← try first (best quality)
- 15  320    192
- 12  320    128
- 12  280    128
- 10  240     96
-  8  200     64     ← last resort
-```
-
+The script walks the tiers top-down and keeps the first encode that fits — so you always get the best quality that hits the cap.
