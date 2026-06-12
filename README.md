@@ -16,6 +16,8 @@ chmod +x main.sh                  # one-time
 
 Originals are moved to `./archive`. Output is numbered (`1.gif`, `2.png`, …) and keeps counting up across runs — nothing gets overwritten.
 
+> **ffmpeg** is required. **ImageMagick** is optional — only used for images, where it gives sharper resizing; without it, ffmpeg handles images too. The script checks for both on startup.
+
 ## What goes in → what comes out
 
 | You drop                 | You get | What happens                                  |

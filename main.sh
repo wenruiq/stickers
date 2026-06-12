@@ -76,6 +76,15 @@ if [[ -z "${MAX_SIZE_BYTES:-}" ]] || [[ ${#QUALITY_TIERS[@]} -eq 0 ]] || [[ ${#P
     exit 1
 fi
 
+# ---------- Preflight ----------
+# ffmpeg is required (videos, and the image fallback). ImageMagick is optional —
+# preferred for images, but ffmpeg covers them when it's absent.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "✗ ffmpeg not found. Install it first:  brew install ffmpeg imagemagick" >&2
+    exit 1
+fi
+[[ -z "$IM" ]] && echo "⚠ ImageMagick not found — using ffmpeg for images. For sharper image resizing: brew install imagemagick"
+
 # ---------- Setup ----------
 mkdir -p "$INPUT_DIR" "$OUTPUT_DIR" "$ARCHIVE_DIR"
 [[ -f "$COUNTER_FILE" ]] || echo "1" > "$COUNTER_FILE"
