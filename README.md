@@ -44,6 +44,10 @@ It finds the [7TV](https://7tv.app) emote, downloads it to `input/`, and runs th
 ./main.sh --app NAME  # use a different app's size rules
 ```
 
+```bash
+./test.sh             # run the test suite (~4s, needs ffmpeg)
+```
+
 To reset everything and restart numbering from 1:
 
 ```bash
