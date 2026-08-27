@@ -116,10 +116,10 @@ list_inputs() {
     local first=1
     for pat in "$@"; do
         if [[ $first -eq 1 ]]; then
-            find_args+=(-name "$pat")
+            find_args+=(-iname "$pat")
             first=0
         else
-            find_args+=(-o -name "$pat")
+            find_args+=(-o -iname "$pat")
         fi
     done
     find "$dir" -maxdepth 1 -type f \( "${find_args[@]}" \) ! -name ".*" 2>/dev/null
