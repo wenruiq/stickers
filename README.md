@@ -19,11 +19,11 @@ Originals are moved to `./archive`. Output is numbered (`1.gif`, `2.png`, …) a
 
 ## What goes in → what comes out
 
-| You drop                 | You get | What happens                                  |
-| ------------------------ | ------- | --------------------------------------------- |
-| `.mp4`, `.webm`          | `.gif`  | Re-encoded down until it fits under 2MB.       |
-| `.jpg`, `.jpeg`, `.webp` | `.png`  | Downscaled in steps if too large.             |
-| `.gif`, `.png`           | same    | Kept as-is, or re-encoded down if over 2MB.    |
+| You drop                                        | You get | What happens                                |
+| ---------------------------------------------- | ------- | ------------------------------------------- |
+| `.mp4`, `.mov`, `.webm`, `.mkv`, `.avi`, `.m4v` | `.gif`  | Re-encoded down until it fits under 2MB.    |
+| `.jpg`, `.jpeg`, `.webp`                        | `.png`  | Downscaled in steps if too large.           |
+| `.gif`, `.png`                                  | same    | Kept as-is, or re-encoded down if over 2MB. |
 
 `output/` only ever contains files that fit the limit. Anything that can't be sized down stays in `input/` so you can fix it and retry.
 

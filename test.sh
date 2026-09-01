@@ -119,6 +119,15 @@ check_contains "counted as 1 image" "1 image" "$out"
 check_contains "counted as 2 passthrough" "2 passthrough" "$out"
 
 echo
+echo "Video containers beyond .mp4"
+d=$(sandbox)
+for ext in mov webm mkv avi m4v; do drop "$d" mp4 "clip.$ext"; done
+out=$("$d/main.sh" 2>&1)
+check_contains "all 5 containers counted as video" "5 video" "$out"
+check "each became a gif" 5 "$(ls -1 "$d"/output/*.gif 2>/dev/null | wc -l | tr -d ' ')"
+check "input/ drained" 0 "$(count "$d/input")"
+
+echo
 echo "Lowercase extensions"
 d=$(sandbox)
 drop "$d" png a.png

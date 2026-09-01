@@ -3,7 +3,7 @@
 # Sticker conversion pipeline with pluggable per-app rules.
 #
 # Layout:
-#   input/     — drop source files here (.mp4 .webm .jpg .jpeg .webp .gif .png)
+#   input/     — drop source files here (.mp4 .mov .webm .mkv .avi .m4v .jpg .jpeg .webp .gif .png)
 #   output/    — converted, size-capped stickers (1.gif, 2.png, …)
 #   archive/   — originals tidied here after processing
 #   .rules/    — per-app size rules (advanced; pick one with --app <name>)
@@ -286,7 +286,7 @@ process_passthrough() {
 
 # ---------- Misplacement check ----------
 # If the user dropped sources at the repo root instead of input/, point them home.
-stray=$(list_inputs "$SCRIPT_DIR" "*.mp4" "*.webm" "*.webp" "*.jpg" "*.jpeg" "*.gif" "*.png" | head -n 5)
+stray=$(list_inputs "$SCRIPT_DIR" "*.mp4" "*.mov" "*.webm" "*.mkv" "*.avi" "*.m4v" "*.webp" "*.jpg" "*.jpeg" "*.gif" "*.png" | head -n 5)
 if [[ -n "$stray" ]]; then
     echo "⚠ Found source files at the repo root. They belong in ./input/"
     while IFS= read -r line; do
@@ -300,7 +300,7 @@ fi
 echo "🎯 ${APP_NAME:-$APP} sticker pipeline  (max $(human_size "$MAX_SIZE_BYTES"))"
 echo
 
-video_files=$(list_inputs "$INPUT_DIR" "*.mp4" "*.webm")
+video_files=$(list_inputs "$INPUT_DIR" "*.mp4" "*.mov" "*.webm" "*.mkv" "*.avi" "*.m4v")
 image_files=$(list_inputs "$INPUT_DIR" "*.webp" "*.jpg" "*.jpeg")
 pass_files=$(list_inputs "$INPUT_DIR" "*.gif" "*.png")
 
@@ -313,7 +313,7 @@ if [[ $((video_count + image_count + pass_count)) -eq 0 ]]; then
 input/ is empty — nothing to process.
 
   Drop source files into ./input/ and re-run:
-    .mp4  .webm           → converted to GIF
+    .mp4 .mov .webm .mkv .avi .m4v  → converted to GIF
     .jpg  .jpeg  .webp    → converted to PNG
     .gif  .png            → passed through (re-encoded only if over the size limit)
 EOF
